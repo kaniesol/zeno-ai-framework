@@ -12,3 +12,5 @@
 git clone https://github.com/kanie/zeno-ai-framework.git
 cd zeno-ai-framework
 npm install
+## Demo
+![Demo](assets/demo.gif)
