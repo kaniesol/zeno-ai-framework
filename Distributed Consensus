@@ -1,0 +1,148 @@
+// Zeno AI Distributed Consensus Framework
+
+// Import Required Modules
+const crypto = require("crypto");
+const fs = require("fs");
+
+// Configuration
+const CONFIG = {
+    quorum: 0.66, // 66% majority required
+    voteDuration: 60000, // 1 minute in milliseconds
+    proposalLog: "./proposals.json",
+    voterLog: "./voters.json",
+};
+
+// Proposal Class
+class Proposal {
+    constructor(id, description, creator) {
+        this.id = id;
+        this.description = description;
+        this.creator = creator;
+        this.votes = {
+            yes: 0,
+            no: 0,
+        };
+        this.startTime = Date.now();
+        this.voters = [];
+    }
+
+    addVote(voterId, vote) {
+        if (this.voters.includes(voterId)) {
+            throw new Error("Voter has already cast a vote.");
+        }
+        this.voters.push(voterId);
+        this.votes[vote]++;
+    }
+
+    isQuorumMet(totalVoters) {
+        const totalVotes = this.votes.yes + this.votes.no;
+        return totalVotes / totalVoters >= CONFIG.quorum;
+    }
+
+    isVoteSuccessful() {
+        return this.votes.yes > this.votes.no;
+    }
+}
+
+// Voting System
+class VotingSystem {
+    constructor() {
+        this.proposals = this.loadProposals();
+        this.voters = this.loadVoters();
+    }
+
+    loadProposals() {
+        if (fs.existsSync(CONFIG.proposalLog)) {
+            return JSON.parse(fs.readFileSync(CONFIG.proposalLog));
+        }
+        return [];
+    }
+
+    saveProposals() {
+        fs.writeFileSync(CONFIG.proposalLog, JSON.stringify(this.proposals, null, 2));
+    }
+
+    loadVoters() {
+        if (fs.existsSync(CONFIG.voterLog)) {
+            return JSON.parse(fs.readFileSync(CONFIG.voterLog));
+        }
+        return [];
+    }
+
+    saveVoters() {
+        fs.writeFileSync(CONFIG.voterLog, JSON.stringify(this.voters, null, 2));
+    }
+
+    registerVoter(voterId) {
+        if (this.voters.includes(voterId)) {
+            throw new Error("Voter already registered.");
+        }
+        this.voters.push(voterId);
+        this.saveVoters();
+    }
+
+    createProposal(description, creator) {
+        const id = crypto.randomBytes(16).toString("hex");
+        const proposal = new Proposal(id, description, creator);
+        this.proposals.push(proposal);
+        this.saveProposals();
+        return id;
+    }
+
+    vote(proposalId, voterId, vote) {
+        const proposal = this.proposals.find((p) => p.id === proposalId);
+        if (!proposal) {
+            throw new Error("Proposal not found.");
+        }
+        if (Date.now() - proposal.startTime > CONFIG.voteDuration) {
+            throw new Error("Voting period has ended.");
+        }
+        proposal.addVote(voterId, vote);
+        this.saveProposals();
+    }
+
+    tallyVotes(proposalId) {
+        const proposal = this.proposals.find((p) => p.id === proposalId);
+        if (!proposal) {
+            throw new Error("Proposal not found.");
+        }
+        if (Date.now() - proposal.startTime <= CONFIG.voteDuration) {
+            throw new Error("Voting period is still active.");
+        }
+        const quorumMet = proposal.isQuorumMet(this.voters.length);
+        const success = proposal.isVoteSuccessful();
+
+        return {
+            quorumMet,
+            success,
+            votes: proposal.votes,
+        };
+    }
+}
+
+// Example Usage
+const votingSystem = new VotingSystem();
+
+try {
+    console.log("Registering voters...");
+    votingSystem.registerVoter("voter1");
+    votingSystem.registerVoter("voter2");
+    votingSystem.registerVoter("voter3");
+
+    console.log("Creating proposal...");
+    const proposalId = votingSystem.createProposal(
+        "Should we implement a gas fee reduction mechanism?",
+        "creator1"
+    );
+
+    console.log("Voting...");
+    votingSystem.vote(proposalId, "voter1", "yes");
+    votingSystem.vote(proposalId, "voter2", "yes");
+    votingSystem.vote(proposalId, "voter3", "no");
+
+    console.log("Tallying votes...");
+    const result = votingSystem.tallyVotes(proposalId);
+    console.log("Vote Result:", result);
+} catch (error) {
+    console.error("Error:", error.message);
+}
