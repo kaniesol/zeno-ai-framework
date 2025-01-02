@@ -1,0 +1,143 @@
+// Zeno Blockchain Data Analytics Framework
+
+const { ethers } = require("ethers");
+const fs = require("fs");
+const path = require("path");
+const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
+
+// Configuration Parameters
+const provider = new ethers.providers.JsonRpcProvider("https://mainnet.infura.io/v3/YOUR_INFURA_KEY");
+const analyticsOutput = path.join(__dirname, "analytics");
+
+if (!fs.existsSync(analyticsOutput)) {
+    fs.mkdirSync(analyticsOutput);
+}
+
+/**
+ * Fetches recent blockchain transactions and analyzes gas fees
+ * @param {string} walletAddress
+ */
+async function fetchTransactions(walletAddress) {
+    console.log(`Fetching transactions for wallet: ${walletAddress}`);
+
+    const history = await provider.getHistory(walletAddress);
+    const transactions = history.map(tx => ({
+        hash: tx.hash,
+        gasUsed: ethers.BigNumber.from(tx.gasUsed || "0"),
+        gasPrice: ethers.BigNumber.from(tx.gasPrice || "0"),
+        value: ethers.utils.formatEther(tx.value || "0"),
+        timeStamp: new Date(tx.timestamp * 1000),
+    }));
+
+    console.log(`Fetched ${transactions.length} transactions.`);
+    return transactions;
+}
+
+/**
+ * Analyzes gas fee savings across a series of transactions
+ * @param {Array} transactions
+ * @returns {Object} Analysis Results
+ */
+function analyzeGasFees(transactions) {
+    console.log("Analyzing gas fee data...");
+
+    const gasData = transactions.map(tx => ({
+        gasUsed: tx.gasUsed.toNumber(),
+        gasPrice: tx.gasPrice.toNumber(),
+        gasCost: tx.gasUsed.mul(tx.gasPrice).toNumber(),
+    }));
+
+    const totalGasCost = gasData.reduce((acc, data) => acc + data.gasCost, 0);
+    const averageGasCost = totalGasCost / gasData.length;
+
+    console.log("Analysis complete.");
+    return { totalGasCost, averageGasCost, gasData };
+}
+
+/**
+ * Generates a report based on transaction and analysis data
+ * @param {Array} transactions
+ * @param {Object} analysis
+ */
+function generateReport(transactions, analysis) {
+    console.log("Generating report...");
+
+    const reportData = {
+        summary: {
+            totalTransactions: transactions.length,
+            totalGasCost: analysis.totalGasCost,
+            averageGasCost: analysis.averageGasCost,
+        },
+        transactions,
+    };
+
+    const reportPath = path.join(analyticsOutput, "report.json");
+    fs.writeFileSync(reportPath, JSON.stringify(reportData, null, 2));
+
+    console.log(`Report saved to: ${reportPath}`);
+}
+
+/**
+ * Creates a gas usage visualization
+ * @param {Object} analysis
+ */
+async function generateGasUsageChart(analysis) {
+    console.log("Generating gas usage chart...");
+
+    const chartCanvas = new ChartJSNodeCanvas({ width: 800, height: 600 });
+
+    const labels = analysis.gasData.map((_, idx) => `Tx ${idx + 1}`);
+    const gasCosts = analysis.gasData.map(data => data.gasCost);
+
+    const chartConfig = {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "Gas Cost (Gwei)",
+                    data: gasCosts,
+                    backgroundColor: "rgba(75, 192, 192, 0.2)",
+                    borderColor: "rgba(75, 192, 192, 1)",
+                    borderWidth: 1,
+                },
+            ],
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true,
+                },
+            },
+        },
+    };
+
+    const buffer = await chartCanvas.renderToBuffer(chartConfig);
+    const chartPath = path.join(analyticsOutput, "gas_usage_chart.png");
+    fs.writeFileSync(chartPath, buffer);
+
+    console.log(`Gas usage chart saved to: ${chartPath}`);
+}
+
+/**
+ * Main Function to Execute Framework
+ * @param {string} walletAddress
+ */
+async function main(walletAddress) {
+    console.log("Starting Zeno Blockchain Data Analytics Framework...");
+
+    try {
+        const transactions = await fetchTransactions(walletAddress);
+        const analysis = analyzeGasFees(transactions);
+
+        generateReport(transactions, analysis);
+        await generateGasUsageChart(analysis);
+
+        console.log("Analytics process complete.");
+    } catch (error) {
+        console.error("Error in analytics process:", error);
+    }
+}
+
+// Execute framework with a sample wallet address
+main("0x742d35Cc6634C0532925a3b844Bc454e4438f44e");
