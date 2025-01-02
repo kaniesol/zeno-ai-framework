@@ -1,0 +1,158 @@
+// Zeno Smart Contract Auditing and Optimization Tool
+
+// Import required libraries
+const fs = require("fs");
+const solc = require("solc");
+const { ethers } = require("ethers");
+const chalk = require("chalk");
+
+// Configuration for audit and optimization
+const CONFIG = {
+    optimizationLevel: 200,
+    reportOutputDir: "./auditReports",
+    criticalFunctions: ["transfer", "approve", "transferFrom"],
+    gasEstimationThreshold: 100000,
+    recommendedGasLimit: 80000,
+};
+
+// Load the smart contract source code
+function loadContract(contractPath) {
+    try {
+        const source = fs.readFileSync(contractPath, "utf8");
+        console.log(chalk.green("✅ Contract source loaded successfully."));
+        return source;
+    } catch (err) {
+        console.error(chalk.red("❌ Failed to load contract source."), err);
+        process.exit(1);
+    }
+}
+
+// Compile the smart contract
+function compileContract(source, contractName) {
+    try {
+        const input = {
+            language: "Solidity",
+            sources: {
+                [contractName]: {
+                    content: source,
+                },
+            },
+            settings: {
+                optimizer: {
+                    enabled: true,
+                    runs: CONFIG.optimizationLevel,
+                },
+                outputSelection: {
+                    "*": {
+                        "*": ["abi", "evm.bytecode", "evm.gasEstimates"],
+                    },
+                },
+            },
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+
+        if (output.errors) {
+            output.errors.forEach((err) => console.error(chalk.red(`❌ ${err.formattedMessage}`)));
+            process.exit(1);
+        }
+
+        console.log(chalk.green("✅ Contract compiled successfully."));
+        return output.contracts[contractName];
+    } catch (err) {
+        console.error(chalk.red("❌ Compilation failed."), err);
+        process.exit(1);
+    }
+}
+
+// Perform security analysis on critical functions
+function analyzeCriticalFunctions(abi) {
+    console.log(chalk.blue("🔍 Analyzing critical functions for potential risks..."));
+    const riskyFunctions = [];
+
+    abi.forEach((item) => {
+        if (CONFIG.criticalFunctions.includes(item.name)) {
+            riskyFunctions.push(item.name);
+        }
+    });
+
+    if (riskyFunctions.length > 0) {
+        console.warn(
+            chalk.yellow(
+                `⚠️ Found critical functions: ${riskyFunctions.join(", ")}. Ensure they are protected against reentrancy and overflow.`
+            )
+        );
+    } else {
+        console.log(chalk.green("✅ No critical functions found."));
+    }
+}
+
+// Estimate gas consumption for all functions
+function estimateGas(abi, bytecode) {
+    console.log(chalk.blue("🔍 Estimating gas consumption for functions..."));
+    const provider = new ethers.providers.JsonRpcProvider("http://localhost:8545");
+    const wallet = ethers.Wallet.createRandom().connect(provider);
+
+    const contract = new ethers.ContractFactory(abi, bytecode.object, wallet);
+
+    abi.forEach(async (item) => {
+        if (item.type === "function") {
+            try {
+                const gasEstimate = await contract.estimateGas[item.name]();
+                console.log(
+                    chalk.white(`Function ${item.name} estimated gas: ${gasEstimate.toString()} wei`)
+                );
+
+                if (gasEstimate > CONFIG.gasEstimationThreshold) {
+                    console.warn(
+                        chalk.yellow(
+                            `⚠️ Function ${item.name} exceeds recommended gas threshold of ${CONFIG.gasEstimationThreshold}`
+                        )
+                    );
+                }
+            } catch (err) {
+                console.error(chalk.red(`❌ Failed to estimate gas for ${item.name}`), err);
+            }
+        }
+    });
+}
+
+// Generate a comprehensive audit report
+function generateAuditReport(contractName, abi, bytecode) {
+    console.log(chalk.blue("📄 Generating audit report..."));
+    const report = {
+        contract: contractName,
+        timestamp: new Date().toISOString(),
+        abi,
+        bytecode: bytecode.object,
+        recommendations: "Ensure proper testing and third-party audits are performed.",
+    };
+
+    const reportPath = `${CONFIG.reportOutputDir}/${contractName}_audit.json`;
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+
+    console.log(chalk.green(`✅ Audit report generated: ${reportPath}`));
+}
+
+// Main workflow
+(async () => {
+    console.log(chalk.cyan("🚀 Starting Zeno Smart Contract Auditing Tool..."));
+
+    const contractPath = "./contracts/MyToken.sol";
+    const contractName = "MyToken";
+
+    // Step 1: Load contract source
+    const source = loadContract(contractPath);
+
+    // Step 2: Compile contract
+    const compiled = compileContract(source, contractName);
+
+    // Step 3: Analyze critical functions
+    analyzeCriticalFunctions(compiled[contractName].abi);
+
+    // Step 4: Estimate gas
+    estimateGas(compiled[contractName].abi, compiled[contractName].evm.bytecode);
+
+    // Step 5: Generate audit report
+    generateAuditReport(contractName, compiled[contractName].abi, compiled[contractName].evm.bytecode);
+})();
