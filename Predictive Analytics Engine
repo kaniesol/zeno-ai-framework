@@ -1,0 +1,132 @@
+// Zeno Predictive Analytics Engine
+import { ethers } from "ethers";
+import { Connection, clusterApiUrl } from "@solana/web3.js";
+import { writeFileSync } from "fs";
+import { createInterface } from "readline";
+
+// Blockchain Configuration
+const ETH_PROVIDER = new ethers.JsonRpcProvider("https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID");
+const SOLANA_CONNECTION = new Connection(clusterApiUrl("mainnet-beta"));
+
+// Types
+type Blockchain = "Ethereum" | "Solana";
+
+interface TransactionData {
+    chain: Blockchain;
+    timestamp: number;
+    gasUsed?: number; // Ethereum
+    lamportsUsed?: number; // Solana
+    fee: number; // Unified fee representation in ETH or SOL
+}
+
+// Historical Data Store
+const historicalData: TransactionData[] = [];
+
+// Fetch Ethereum Data
+async function fetchEthereumGasData(blocks = 100) {
+    console.log("Fetching Ethereum gas data...");
+    const latestBlockNumber = await ETH_PROVIDER.getBlockNumber();
+    for (let i = 0; i < blocks; i++) {
+        const block = await ETH_PROVIDER.getBlock(latestBlockNumber - i);
+        const fee = block.gasUsed.mul(block.baseFeePerGas || 0).toString();
+        historicalData.push({
+            chain: "Ethereum",
+            timestamp: block.timestamp,
+            gasUsed: parseInt(block.gasUsed.toString(), 10),
+            fee: ethers.utils.formatEther(fee),
+        });
+    }
+}
+
+// Fetch Solana Data
+async function fetchSolanaFeeData(limit = 100) {
+    console.log("Fetching Solana fee data...");
+    const latestBlocks = await SOLANA_CONNECTION.getBlocks(limit);
+    for (const blockNum of latestBlocks) {
+        const blockData = await SOLANA_CONNECTION.getBlock(blockNum);
+        if (blockData) {
+            for (const tx of blockData.transactions) {
+                const fee = tx.meta?.fee || 0;
+                historicalData.push({
+                    chain: "Solana",
+                    timestamp: blockData.blockTime || 0,
+                    lamportsUsed: fee,
+                    fee: fee / 1_000_000_000, // Convert lamports to SOL
+                });
+            }
+        }
+    }
+}
+
+// Predict Congestion
+function predictCongestion(chain: Blockchain, threshold: number): string {
+    const data = historicalData.filter((tx) => tx.chain === chain);
+    const avgFee = data.reduce((sum, tx) => sum + tx.fee, 0) / data.length;
+    return avgFee > threshold
+        ? `🚨 High congestion expected on ${chain}! Avg fee: ${avgFee.toFixed(5)}`
+        : `✅ ${chain} network is operating smoothly. Avg fee: ${avgFee.toFixed(5)}`;
+}
+
+// Save Historical Data
+function saveHistoricalData(filename: string) {
+    writeFileSync(filename, JSON.stringify(historicalData, null, 2));
+    console.log(`Data saved to ${filename}`);
+}
+
+// Load Data
+function loadHistoricalData(filename: string): TransactionData[] {
+    try {
+        const data = require(`./${filename}`);
+        console.log("Data loaded from file.");
+        return data;
+    } catch (error) {
+        console.error("Error loading data:", error);
+        return [];
+    }
+}
+
+// Interactive CLI for Predictions
+function startCLI() {
+    const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+
+    const askQuestion = (query: string): Promise<string> => {
+        return new Promise((resolve) => rl.question(query, resolve));
+    };
+
+    (async () => {
+        console.log("Welcome to Zeno Predictive Analytics Engine!");
+        const chain = (await askQuestion("Which blockchain? (Ethereum/Solana): ")).trim() as Blockchain;
+        const threshold = parseFloat(await askQuestion("Set fee threshold for congestion alert: "));
+
+        console.log("Analyzing...");
+        console.log(predictCongestion(chain, threshold));
+
+        rl.close();
+    })();
+}
+
+// Generate Report
+function generateReport() {
+    console.log("=== Predictive Analytics Report ===");
+    console.log(`Total Ethereum Transactions Analyzed: ${historicalData.filter((tx) => tx.chain === "Ethereum").length}`);
+    console.log(`Total Solana Transactions Analyzed: ${historicalData.filter((tx) => tx.chain === "Solana").length}`);
+    console.log(`Ethereum Congestion Prediction: ${predictCongestion("Ethereum", 0.01)}`);
+    console.log(`Solana Congestion Prediction: ${predictCongestion("Solana", 0.0001)}`);
+}
+
+// Main Function
+async function main() {
+    console.log("Starting Zeno Predictive Analytics Engine...");
+    await fetchEthereumGasData(50);
+    await fetchSolanaFeeData(50);
+
+    saveHistoricalData("zeno_analytics_data.json");
+    generateReport();
+    startCLI();
+}
+
+// Start
+main().catch((err) => console.error("Error:", err));
