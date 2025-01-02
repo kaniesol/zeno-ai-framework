@@ -1,0 +1,106 @@
+// Zeno AI Node Monitoring and Health Check Framework
+
+// Dependencies
+const axios = require("axios");
+const fs = require("fs");
+const chalk = require("chalk");
+
+// Configuration
+const CONFIG = {
+    nodes: [
+        { name: "Node 1", url: "http://node1.blockchain.net/health" },
+        { name: "Node 2", url: "http://node2.blockchain.net/health" },
+        { name: "Node 3", url: "http://node3.blockchain.net/health" },
+    ],
+    checkInterval: 60000, // Check every 60 seconds
+    alertThresholds: {
+        cpuUsage: 80, // Alert if CPU usage exceeds 80%
+        memoryUsage: 70, // Alert if memory usage exceeds 70%
+        blockHeightLag: 5, // Alert if block height lag exceeds 5 blocks
+    },
+    logFile: "./node_health_log.json",
+};
+
+// Data Store for Node Health
+const nodeHealthData = {};
+
+// Utility Functions
+function logMessage(message, level = "info") {
+    const colors = { info: chalk.blue, warn: chalk.yellow, error: chalk.red };
+    console.log(colors[level](message));
+}
+
+function saveLogToFile(data) {
+    fs.writeFileSync(CONFIG.logFile, JSON.stringify(data, null, 2));
+    logMessage(`Health data saved to ${CONFIG.logFile}`);
+}
+
+// Fetch Node Health Data
+async function fetchNodeHealth(node) {
+    try {
+        const response = await axios.get(node.url);
+        logMessage(`Fetched health data for ${node.name}: ${response.status} OK`);
+        return response.data;
+    } catch (error) {
+        logMessage(`Error fetching health data for ${node.name}: ${error.message}`, "error");
+        return null;
+    }
+}
+
+// Analyze Node Health
+function analyzeHealth(node, data) {
+    const alerts = [];
+    if (data.cpuUsage > CONFIG.alertThresholds.cpuUsage) {
+        alerts.push(`CPU usage high (${data.cpuUsage}%)`);
+    }
+    if (data.memoryUsage > CONFIG.alertThresholds.memoryUsage) {
+        alerts.push(`Memory usage high (${data.memoryUsage}%)`);
+    }
+    if (data.blockHeightLag > CONFIG.alertThresholds.blockHeightLag) {
+        alerts.push(`Block height lag too high (${data.blockHeightLag} blocks)`);
+    }
+
+    if (alerts.length > 0) {
+        logMessage(`⚠️ Alerts for ${node.name}: ${alerts.join(", ")}`, "warn");
+    } else {
+        logMessage(`✅ ${node.name} is healthy`);
+    }
+
+    nodeHealthData[node.name] = {
+        timestamp: new Date().toISOString(),
+        cpuUsage: data.cpuUsage,
+        memoryUsage: data.memoryUsage,
+        blockHeightLag: data.blockHeightLag,
+        alerts,
+    };
+}
+
+// Generate Health Report
+function generateHealthReport() {
+    logMessage("=== Node Health Report ===");
+    for (const [nodeName, healthData] of Object.entries(nodeHealthData)) {
+        logMessage(`${nodeName}:\n${JSON.stringify(healthData, null, 2)}`);
+    }
+}
+
+// Main Monitoring Loop
+async function monitorNodes() {
+    while (true) {
+        logMessage("Starting node health check...");
+
+        for (const node of CONFIG.nodes) {
+            const healthData = await fetchNodeHealth(node);
+            if (healthData) {
+                analyzeHealth(node, healthData);
+            }
+        }
+
+        saveLogToFile(nodeHealthData);
+        generateHealthReport();
+        logMessage(`Next check in ${CONFIG.checkInterval / 1000} seconds...`);
+        await new Promise((resolve) => setTimeout(resolve, CONFIG.checkInterval));
+    }
+}
+
+// Initialize Monitoring
+monitorNodes().catch((err) => logMessage(`Monitoring failed: ${err.message}`, "error"));
