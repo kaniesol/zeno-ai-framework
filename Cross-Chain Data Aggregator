@@ -1,0 +1,113 @@
+// Cross-Chain Data Aggregator for Zeno
+import { ethers } from "ethers";
+import { Connection, clusterApiUrl, PublicKey } from "@solana/web3.js";
+import fs from "fs";
+
+// Ethereum Configuration
+const ETH_PROVIDER = new ethers.JsonRpcProvider("https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID");
+
+// Solana Configuration
+const SOLANA_CONNECTION = new Connection(clusterApiUrl("mainnet-beta"));
+
+// Supported Chains
+type Blockchain = "Ethereum" | "Solana";
+
+// Transaction Data Structure
+interface TransactionData {
+    chain: Blockchain;
+    hash: string;
+    from: string;
+    to: string;
+    value: string;
+    timestamp: number;
+    status: string;
+}
+
+// Aggregated Data Store
+const aggregatedData: TransactionData[] = [];
+
+// Ethereum Functions
+async function fetchEthereumTransactions(walletAddress: string, limit = 10) {
+    console.log(`Fetching Ethereum transactions for ${walletAddress}`);
+    const history = await ETH_PROVIDER.getHistory(walletAddress);
+    for (let i = 0; i < Math.min(history.length, limit); i++) {
+        const tx = history[i];
+        aggregatedData.push({
+            chain: "Ethereum",
+            hash: tx.hash,
+            from: tx.from,
+            to: tx.to,
+            value: ethers.formatEther(tx.value),
+            timestamp: (await ETH_PROVIDER.getBlock(tx.blockNumber)).timestamp,
+            status: tx.confirmations > 0 ? "Confirmed" : "Pending",
+        });
+    }
+}
+
+// Solana Functions
+async function fetchSolanaTransactions(walletAddress: string, limit = 10) {
+    console.log(`Fetching Solana transactions for ${walletAddress}`);
+    const pubkey = new PublicKey(walletAddress);
+    const history = await SOLANA_CONNECTION.getConfirmedSignaturesForAddress2(pubkey, { limit });
+    for (const signature of history) {
+        const txDetails = await SOLANA_CONNECTION.getTransaction(signature.signature);
+        if (txDetails) {
+            aggregatedData.push({
+                chain: "Solana",
+                hash: signature.signature,
+                from: txDetails.transaction.message.accountKeys[0].toBase58(),
+                to: txDetails.transaction.message.accountKeys[1].toBase58(),
+                value: "N/A", // Solana doesn't use native value transfers like Ethereum
+                timestamp: txDetails.blockTime || 0,
+                status: "Confirmed",
+            });
+        }
+    }
+}
+
+// Save Aggregated Data to File
+function saveDataToFile(filename: string) {
+    fs.writeFileSync(filename, JSON.stringify(aggregatedData, null, 2));
+    console.log(`Data saved to ${filename}`);
+}
+
+// Query Aggregated Data
+function queryData(chain?: Blockchain, status?: string) {
+    return aggregatedData.filter(
+        (tx) => (!chain || tx.chain === chain) && (!status || tx.status === status)
+    );
+}
+
+// Generate Insights
+function generateInsights() {
+    const ethTxs = aggregatedData.filter((tx) => tx.chain === "Ethereum");
+    const solTxs = aggregatedData.filter((tx) => tx.chain === "Solana");
+
+    console.log("=== Aggregated Insights ===");
+    console.log(`Total Transactions: ${aggregatedData.length}`);
+    console.log(`Ethereum Transactions: ${ethTxs.length}`);
+    console.log(`Solana Transactions: ${solTxs.length}`);
+    console.log(`Confirmed Transactions: ${queryData(undefined, "Confirmed").length}`);
+    console.log(`Pending Transactions: ${queryData(undefined, "Pending").length}`);
+}
+
+// Main Function
+async function main() {
+    console.log("Starting Zeno Cross-Chain Data Aggregator...");
+    const walletAddressEth = "0xYourEthereumWalletAddress";
+    const walletAddressSol = "YourSolanaWalletAddress";
+
+    // Fetch Data
+    await fetchEthereumTransactions(walletAddressEth);
+    await fetchSolanaTransactions(walletAddressSol);
+
+    // Save Data
+    saveDataToFile("aggregated_transactions.json");
+
+    // Generate Insights
+    generateInsights();
+}
+
+// Start Aggregator
+main().catch((error) => console.error("Error:", error));
+
