@@ -1,0 +1,19 @@
+Stake & Earn:
+Token holders can stake their ZENO tokens to earn periodic rewards.
+Encourages long-term holding and participation in the ecosystem.
+Flexible Lock Periods:
+
+Users can choose different lock durations, each offering various reward rates.
+A shorter lock period grants lower APY, while longer locks yield higher APY.
+Owner-Managed Rewards:
+
+The contract owner can adjust reward rates and lock parameters.
+Allows the team to fine-tune incentives based on market conditions.
+Transparency & Security:
+
+Public functions to view total staked tokens and each staker’s details.
+Events emitted on stake, unstake, and reward distribution for easy tracking.
+Community-Centric Approach:
+
+By staking ZENO, holders gain a voice in upcoming proposals (future governance feature).
+Encourages active participation and aligns incentives across the community.
