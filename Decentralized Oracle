@@ -1,0 +1,161 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+/**
+ * @title ZenoDecentralizedOracle
+ * @dev A decentralized oracle system for fetching off-chain data securely and reliably.
+ */
+
+contract ZenoDecentralizedOracle {
+    address public owner;
+    uint256 public dataRequestFee;
+
+    struct DataRequest {
+        uint256 id;
+        address requester;
+        string query;
+        uint256 createdAt;
+        bool fulfilled;
+        string result;
+    }
+
+    struct OracleNode {
+        address nodeAddress;
+        uint256 reputation;
+        bool active;
+    }
+
+    uint256 private requestIdCounter;
+    mapping(uint256 => DataRequest) public dataRequests;
+    mapping(address => OracleNode) public oracleNodes;
+    uint256 public totalActiveNodes;
+
+    event DataRequested(uint256 indexed requestId, address indexed requester, string query);
+    event DataFulfilled(uint256 indexed requestId, string result, address indexed oracleNode);
+    event OracleNodeRegistered(address indexed nodeAddress);
+    event OracleNodeDeactivated(address indexed nodeAddress);
+    event OracleReputationUpdated(address indexed nodeAddress, uint256 newReputation);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not authorized");
+        _;
+    }
+
+    modifier onlyActiveOracle() {
+        require(oracleNodes[msg.sender].active, "Not an active oracle node");
+        _;
+    }
+
+    constructor(uint256 _dataRequestFee) {
+        owner = msg.sender;
+        dataRequestFee = _dataRequestFee;
+    }
+
+    /**
+     * @dev Request off-chain data from the oracle system.
+     * @param query The data query to be fulfilled.
+     */
+    function requestData(string memory query) external payable {
+        require(msg.value >= dataRequestFee, "Insufficient fee");
+
+        requestIdCounter++;
+        uint256 newRequestId = requestIdCounter;
+
+        dataRequests[newRequestId] = DataRequest({
+            id: newRequestId,
+            requester: msg.sender,
+            query: query,
+            createdAt: block.timestamp,
+            fulfilled: false,
+            result: ""
+        });
+
+        emit DataRequested(newRequestId, msg.sender, query);
+    }
+
+    /**
+     * @dev Fulfill a data request by an active oracle node.
+     * @param requestId The ID of the data request.
+     * @param result The result of the data query.
+     */
+    function fulfillDataRequest(uint256 requestId, string memory result) external onlyActiveOracle {
+        DataRequest storage request = dataRequests[requestId];
+        require(!request.fulfilled, "Request already fulfilled");
+
+        request.fulfilled = true;
+        request.result = result;
+
+        emit DataFulfilled(requestId, result, msg.sender);
+
+        // Update Oracle Reputation
+        oracleNodes[msg.sender].reputation++;
+        emit OracleReputationUpdated(msg.sender, oracleNodes[msg.sender].reputation);
+    }
+
+    /**
+     * @dev Register a new oracle node.
+     * @param nodeAddress The address of the oracle node.
+     */
+    function registerOracleNode(address nodeAddress) external onlyOwner {
+        require(!oracleNodes[nodeAddress].active, "Node already active");
+
+        oracleNodes[nodeAddress] = OracleNode({
+            nodeAddress: nodeAddress,
+            reputation: 0,
+            active: true
+        });
+
+        totalActiveNodes++;
+
+        emit OracleNodeRegistered(nodeAddress);
+    }
+
+    /**
+     * @dev Deactivate an oracle node.
+     * @param nodeAddress The address of the oracle node.
+     */
+    function deactivateOracleNode(address nodeAddress) external onlyOwner {
+        require(oracleNodes[nodeAddress].active, "Node is not active");
+
+        oracleNodes[nodeAddress].active = false;
+        totalActiveNodes--;
+
+        emit OracleNodeDeactivated(nodeAddress);
+    }
+
+    /**
+     * @dev Update the data request fee.
+     * @param newFee The new fee for data requests.
+     */
+    function updateDataRequestFee(uint256 newFee) external onlyOwner {
+        dataRequestFee = newFee;
+    }
+
+    /**
+     * @dev Get details of a specific data request.
+     * @param requestId The ID of the data request.
+     * @return DataRequest struct with request details.
+     */
+    function getDataRequest(uint256 requestId) external view returns (DataRequest memory) {
+        return dataRequests[requestId];
+    }
+
+    /**
+     * @dev Withdraw accumulated fees.
+     */
+    function withdrawFees() external onlyOwner {
+        payable(owner).transfer(address(this).balance);
+    }
+
+    /**
+     * @dev Fallback function to prevent accidental ETH transfers.
+     */
+    fallback() external payable {
+        revert("Direct ETH transfers not allowed");
+    }
+
+    /**
+     * @dev Allows the contract to receive ETH.
+     */
+    receive() external payable {}
+}
